@@ -6,11 +6,11 @@ Run the GitHub Copilot CLI with **local models** — no internet, no API keys, n
 
 Redirects the GitHub Copilot CLI's model calls to a local inference server ([Ollama](https://ollama.com) or [Foundry Local](https://github.com/microsoft/foundry-local)) running on your machine. You get the full Copilot CLI TUI experience powered by models running entirely on your hardware.
 
-| Mode | Backend | Model | Script |
-|------|---------|-------|--------|
-| Local only | Ollama | Gemma 4 E2B | `launch-ollama.ps1` |
-| Local only | Foundry Local | Phi-4 | `launch-foundry.ps1` |
-| **Hybrid** | Cloud + Local | Claude/GPT-5 + Gemma/Phi | `launch-hybrid.ps1` |
+| Mode | Backend | Model | Script | Status |
+|------|---------|-------|--------|--------|
+| Local only | Ollama | Gemma 4 E2B | `launch-ollama.ps1` | ✅ Tested |
+| Local only | Foundry Local | Phi-4 | `launch-foundry.ps1` | ✅ Tested |
+| **Hybrid** | Cloud + Local | Opus→Gemma, Sonnet→Cloud | `launch-hybrid.ps1` | ✅ Tested |
 
 ## How It Works
 
@@ -93,28 +93,49 @@ The Foundry script starts a tiny proxy server (`foundry-proxy.cjs`) that rewrite
 
 ## Option 3: Hybrid Mode (Cloud + Local)
 
-Run cloud models (Claude, GPT-5) alongside local models (Gemma, Phi) in the **same session**. The hybrid proxy inspects each request's model name and routes it to the right backend.
+Run cloud models (Claude Sonnet, GPT-5) alongside local models (Gemma via Ollama) in the **same session**. The hybrid proxy inspects each request's model name and routes it to the right backend.
+
+> **Tested and confirmed:** Opus routes to local Gemma, Sonnet routes to cloud. The proxy runs via `copilot` command (not `gh copilot`).
 
 ### How It Works
 
 ```
 Copilot CLI → hybrid-proxy (localhost:9090) → inspects model name
-  ├─ claude-*, gpt-5*  → GitHub cloud API (with your auth)
+  ├─ claude-opus-4.6   → Ollama (local Gemma, rewritten to gpt-4.1)
+  ├─ claude-opus-4.5   → Ollama (local Gemma, rewritten to gpt-4.1)
+  ├─ claude-*          → GitHub cloud API (with your auth)
+  ├─ gpt-5*            → GitHub cloud API
   ├─ gpt-4.1           → Ollama (local Gemma)
-  └─ gpt-5-mini        → Foundry Local (Phi-4)
+  └─ gpt-5-mini        → Ollama (local Gemma)
 ```
+
+### Prerequisites
+
+- [Ollama](https://ollama.com) installed and running (`ollama serve`)
+- Gemma model pulled and aliased:
+  ```powershell
+  ollama pull gemma4:e2b
+  ollama cp gemma4:e2b gpt-4.1
+  ```
+- `copilot` command available on PATH (the Copilot CLI standalone binary)
+- Node.js (for the hybrid proxy server)
 
 ### Setup
 
-1. Have Ollama and/or Foundry Local running (see Options 1 & 2 above)
-2. Copy `hybrid-proxy.config.json` and edit the routes to match your setup
-3. Run:
+1. Ensure Ollama is running with the `gpt-4.1` alias created (see Prerequisites)
+2. Run:
 
 ```powershell
 .\launch-hybrid.ps1
 # Or specify default model:
-.\launch-hybrid.ps1 --model claude-sonnet-4.5
+.\launch-hybrid.ps1 -Model claude-sonnet-4.5
 ```
+
+The script will:
+- Start the hybrid proxy on port 9090
+- Temporarily hide MCP configs (restored on exit)
+- Set `OPENAI_BASE_URL=http://localhost:9090/v1`
+- Launch `copilot --model <Model>`
 
 ### Configuration
 
@@ -122,10 +143,20 @@ Edit `hybrid-proxy.config.json` to customize routing:
 
 ```json
 {
+  "listenPort": 9090,
+  "backends": {
+    "cloud": { "url": "https://api.githubcopilot.com", "auth": "passthrough" },
+    "ollama": { "url": "http://localhost:11434", "auth": "static", "apiKey": "ollama" }
+  },
   "routes": [
+    { "match": "claude-opus-4.6", "backend": "ollama", "rewriteModel": "gpt-4.1" },
+    { "match": "claude-opus-4.5", "backend": "ollama", "rewriteModel": "gpt-4.1" },
     { "match": "claude-*", "backend": "cloud" },
-    { "match": "gpt-4.1", "backend": "ollama", "rewriteModel": "gemma4:e2b" }
-  ]
+    { "match": "gpt-5*", "backend": "cloud" },
+    { "match": "gpt-4.1", "backend": "ollama", "rewriteModel": "gpt-4.1" },
+    { "match": "gpt-5-mini", "backend": "ollama", "rewriteModel": "gpt-4.1" }
+  ],
+  "defaultBackend": "cloud"
 }
 ```
 
