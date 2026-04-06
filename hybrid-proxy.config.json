@@ -1,0 +1,27 @@
+{
+  "listenPort": 9090,
+  "backends": {
+    "cloud": {
+      "url": "https://api.githubcopilot.com",
+      "auth": "passthrough"
+    },
+    "ollama": {
+      "url": "http://localhost:11434",
+      "auth": "static",
+      "apiKey": "ollama"
+    },
+    "foundry": {
+      "url": "http://localhost:49296",
+      "auth": "static",
+      "apiKey": "foundry-local"
+    }
+  },
+  "routes": [
+    { "match": "claude-*", "backend": "cloud" },
+    { "match": "gpt-5*", "backend": "cloud" },
+    { "match": "gpt-4.1", "backend": "ollama", "rewriteModel": "gemma4:e2b" },
+    { "match": "gpt-5-mini", "backend": "foundry", "rewriteModel": "Phi-4-generic-cpu:1" },
+    { "match": "gemini-3-pro-preview", "backend": "foundry", "rewriteModel": "Phi-3.5-mini-instruct-generic-cpu:1" }
+  ],
+  "defaultBackend": "cloud"
+}

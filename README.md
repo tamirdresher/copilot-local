@@ -6,10 +6,11 @@ Run the GitHub Copilot CLI with **local models** — no internet, no API keys, n
 
 Redirects the GitHub Copilot CLI's model calls to a local inference server ([Ollama](https://ollama.com) or [Foundry Local](https://github.com/microsoft/foundry-local)) running on your machine. You get the full Copilot CLI TUI experience powered by models running entirely on your hardware.
 
-| Backend | Model | Size | Speed (CPU) | Script |
-|---------|-------|------|-------------|--------|
-| Ollama | Gemma 4 E2B | 7.2 GB | ~30-40s/turn | `launch-ollama.ps1` |
-| Foundry Local | Phi-4 | 10 GB | ~5-10s/turn | `launch-foundry.ps1` |
+| Mode | Backend | Model | Script |
+|------|---------|-------|--------|
+| Local only | Ollama | Gemma 4 E2B | `launch-ollama.ps1` |
+| Local only | Foundry Local | Phi-4 | `launch-foundry.ps1` |
+| **Hybrid** | Cloud + Local | Claude/GPT-5 + Gemma/Phi | `launch-hybrid.ps1` |
 
 ## How It Works
 
@@ -87,6 +88,76 @@ foundry model run phi-4
 ```
 
 The Foundry script starts a tiny proxy server (`foundry-proxy.cjs`) that rewrites the model name from `gpt-4.1` to Foundry's internal ID (`Phi-4-generic-cpu:1`). The proxy auto-starts and auto-stops with the script.
+
+---
+
+## Option 3: Hybrid Mode (Cloud + Local)
+
+Run cloud models (Claude, GPT-5) alongside local models (Gemma, Phi) in the **same session**. The hybrid proxy inspects each request's model name and routes it to the right backend.
+
+### How It Works
+
+```
+Copilot CLI → hybrid-proxy (localhost:9090) → inspects model name
+  ├─ claude-*, gpt-5*  → GitHub cloud API (with your auth)
+  ├─ gpt-4.1           → Ollama (local Gemma)
+  └─ gpt-5-mini        → Foundry Local (Phi-4)
+```
+
+### Setup
+
+1. Have Ollama and/or Foundry Local running (see Options 1 & 2 above)
+2. Copy `hybrid-proxy.config.json` and edit the routes to match your setup
+3. Run:
+
+```powershell
+.\launch-hybrid.ps1
+# Or specify default model:
+.\launch-hybrid.ps1 --model claude-sonnet-4.5
+```
+
+### Configuration
+
+Edit `hybrid-proxy.config.json` to customize routing:
+
+```json
+{
+  "routes": [
+    { "match": "claude-*", "backend": "cloud" },
+    { "match": "gpt-4.1", "backend": "ollama", "rewriteModel": "gemma4:e2b" }
+  ]
+}
+```
+
+### Use with Squad
+
+Set per-agent model overrides in `.squad/config.json`:
+
+```json
+{
+  "agentModelOverrides": {
+    "data": "gpt-4.1",
+    "picard": "claude-opus-4.6",
+    "seven": "claude-sonnet-4.5",
+    "scribe": "gpt-5-mini"
+  }
+}
+```
+
+This gives you Picard on cloud Opus, Data on local Gemma, and Scribe on local Phi — all in one session.
+
+### Available Model Slots
+
+The Copilot CLI has a hardcoded whitelist. You can repurpose these names for local models:
+
+| Whitelisted Name | Default Route | Can Repurpose? |
+|---|---|---|
+| `gpt-4.1` | Local (Ollama) | ✅ Best candidate |
+| `gpt-5-mini` | Local (Foundry) | ✅ Good candidate |
+| `gemini-3-pro-preview` | Local (Foundry) | ✅ Available |
+| `gpt-5.1-codex-mini` | Cloud | 🟡 If not using |
+| All `claude-*` | Cloud | ❌ Keep for cloud |
+| All `gpt-5*` (except mini) | Cloud | ❌ Keep for cloud |
 
 ---
 
