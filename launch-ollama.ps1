@@ -2,7 +2,8 @@
 .SYNOPSIS
     Launch GitHub Copilot CLI with Ollama (Gemma) as the backend.
 .DESCRIPTION
-    Redirects Copilot CLI to a local Ollama server running on localhost:11434.
+    Redirects Copilot CLI to a local Ollama server running on localhost:11434
+    using BYOK (Bring Your Own Key) mode.
     Temporarily hides MCP configs to stay under the 128-tool limit.
     Restores everything on exit (Ctrl+C safe via try/finally).
 .PARAMETER Model
@@ -13,15 +14,18 @@
     .\launch-ollama.ps1 --yolo
     .\launch-ollama.ps1 -Model gpt-4.1 --verbose
 #>
+[CmdletBinding(PositionalBinding=$false)]
 param(
-    [string]$Model = 'gpt-4.1'
+    [string]$Model = 'gpt-4.1',
+    [Parameter(ValueFromRemainingArguments)]
+    [string[]]$CopilotArgs
 )
 
 $ErrorActionPreference = 'Stop'
 
-# --- Point Copilot CLI at Ollama ---
-$env:OPENAI_BASE_URL = 'http://localhost:11434/v1'
-$env:OPENAI_API_KEY  = 'ollama'
+# --- Point Copilot CLI at Ollama (BYOK mode) ---
+$env:COPILOT_PROVIDER_BASE_URL = 'http://localhost:11434/v1'
+$env:COPILOT_PROVIDER_API_KEY  = 'ollama'
 
 # --- Verify 'copilot' command is available ---
 $copilotCmd = Get-Command 'copilot' -ErrorAction SilentlyContinue
@@ -59,13 +63,12 @@ Write-Host "=============================================" -ForegroundColor Gree
 Write-Host "  Command:  copilot" -ForegroundColor DarkGray
 Write-Host "  Model:    $Model -> Ollama alias" -ForegroundColor DarkGray
 Write-Host "  Endpoint: http://localhost:11434/v1" -ForegroundColor DarkGray
+Write-Host "  Mode:     COPILOT_PROVIDER_BASE_URL (BYOK)" -ForegroundColor DarkGray
 Write-Host ""
 
 try {
-    # Pass all extra args (e.g., --yolo, --resume, --agent)
-    $extraArgs = $args
-    if ($extraArgs.Count -gt 0) {
-        copilot @extraArgs --model $Model
+    if ($CopilotArgs.Count -gt 0) {
+        copilot @CopilotArgs --model $Model
     } else {
         copilot --model $Model
     }

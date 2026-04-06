@@ -4,26 +4,27 @@ Run the GitHub Copilot CLI with **local models** — no internet, no API keys, n
 
 ## What This Does
 
-Redirects the GitHub Copilot CLI's model calls to a local inference server ([Ollama](https://ollama.com) or [Foundry Local](https://github.com/microsoft/foundry-local)) running on your machine. You get the full Copilot CLI TUI experience powered by models running entirely on your hardware.
+Redirects the GitHub Copilot CLI's model calls to a local inference server ([Ollama](https://ollama.com), [Foundry Local](https://github.com/microsoft/foundry-local), or [LM Studio](https://lmstudio.ai)) running on your machine. You get the full Copilot CLI TUI experience powered by models running entirely on your hardware.
 
 | Mode | Backend | Model | Script | Status |
 |------|---------|-------|--------|--------|
 | Local only | Ollama | Gemma 4 E2B | `launch-ollama.ps1` | ✅ Tested |
 | Local only | Foundry Local | Phi-4 | `launch-foundry.ps1` | ✅ Tested |
+| Local only | LM Studio | Qwen 3.5 35B-A3B | `launch-lmstudio.ps1` | ✅ Tested |
 | **Hybrid** | Cloud + Local | Opus→Gemma, Sonnet→Cloud | `launch-hybrid.ps1` | ✅ Tested |
 
 ## How It Works
 
 The Copilot CLI (`copilot` command) uses the OpenAI chat/completions API internally. We exploit three things:
 
-1. **`OPENAI_BASE_URL`** — The binary reads this env var and sends requests there instead of OpenAI
+1. **`COPILOT_PROVIDER_BASE_URL`** — The binary reads this env var and sends requests there instead of GitHub's API (BYOK mode)
 2. **`--model gpt-4.1`** — We use a whitelisted model name to pass the CLI's validation
 3. **Model aliasing** — We map `gpt-4.1` to the actual local model name
 
-The binary thinks it's talking to GPT-4.1 at OpenAI, but the requests actually go to your local server running Gemma/Phi.
+The binary thinks it's talking to GPT-4.1, but the requests actually go to your local server running Gemma/Phi/Qwen.
 
 ```
-Copilot CLI → "gpt-4.1" → OPENAI_BASE_URL → localhost → Ollama/Foundry → Gemma/Phi responds
+Copilot CLI → "gpt-4.1" → COPILOT_PROVIDER_BASE_URL → localhost → Ollama/Foundry/LM Studio → local model responds
 ```
 
 ### MCP Tool Limit
@@ -91,7 +92,44 @@ The Foundry script starts a tiny proxy server (`foundry-proxy.cjs`) that rewrite
 
 ---
 
-## Option 3: Hybrid Mode (Cloud + Local)
+## Option 3: LM Studio
+
+### Prerequisites
+
+- [LM Studio](https://lmstudio.ai) installed
+- A model loaded in LM Studio with the local server running (default port 1234)
+- GitHub Copilot CLI installed — `copilot` command on your PATH (see Ollama prerequisites above)
+- Node.js (for proxy scripts)
+
+### Setup
+
+```powershell
+# 1. Download and install LM Studio from https://lmstudio.ai
+
+# 2. Open LM Studio, search for and download a model (e.g., Qwen 3.5 35B-A3B)
+
+# 3. Load the model and start the local server
+#    In LM Studio: Developer tab → Start Server (default port 1234)
+```
+
+### Run
+
+```powershell
+.\launch-lmstudio.ps1
+# Or with flags:
+.\launch-lmstudio.ps1 --yolo
+.\launch-lmstudio.ps1 -LMStudioPort 1234
+```
+
+The LM Studio script points directly at LM Studio's OpenAI-compatible API — no proxy needed. LM Studio accepts any model name and routes to the currently loaded model.
+
+### Using Other Models
+
+Load any model in LM Studio — it accepts any model name and routes to the loaded model. No aliasing or configuration needed. Just load a different model and re-run the script.
+
+---
+
+## Option 4: Hybrid Mode (Cloud + Local)
 
 Run cloud models (Claude Sonnet, GPT-5) alongside local models (Gemma via Ollama) in the **same session**. The hybrid proxy inspects each request's model name and routes it to the right backend.
 
@@ -134,7 +172,7 @@ Copilot CLI → hybrid-proxy (localhost:9090) → inspects model name
 The script will:
 - Start the hybrid proxy on port 9090
 - Temporarily hide MCP configs (restored on exit)
-- Set `OPENAI_BASE_URL=http://localhost:9090/v1`
+- Set `COPILOT_PROVIDER_BASE_URL=http://localhost:9090/v1`
 - Launch `copilot --model <Model>`
 
 ### Configuration
@@ -155,6 +193,31 @@ Edit `hybrid-proxy.config.json` to customize routing:
     { "match": "gpt-5*", "backend": "cloud" },
     { "match": "gpt-4.1", "backend": "ollama", "rewriteModel": "gpt-4.1" },
     { "match": "gpt-5-mini", "backend": "ollama", "rewriteModel": "gpt-4.1" }
+  ],
+  "defaultBackend": "cloud"
+}
+```
+
+**To use LM Studio in hybrid mode**, use the included `hybrid-proxy-lmstudio.config.json` or create your own. LM Studio accepts any model name and routes to the currently loaded model, so `rewriteModel` can be any value — but using the actual model ID (from `http://localhost:1234/v1/models`) is recommended for clarity:
+
+```powershell
+.\launch-hybrid.ps1 -Config .\hybrid-proxy-lmstudio.config.json
+```
+
+The LM Studio config (`hybrid-proxy-lmstudio.config.json`) looks like:
+
+```json
+{
+  "listenPort": 9090,
+  "backends": {
+    "cloud": { "url": "https://api.githubcopilot.com", "auth": "passthrough" },
+    "lmstudio": { "url": "http://localhost:1234", "auth": "static", "apiKey": "lm-studio" }
+  },
+  "routes": [
+    { "match": "claude-opus-4.6", "backend": "lmstudio", "rewriteModel": "qwen/qwen3.5-35b-a3b" },
+    { "match": "claude-*", "backend": "cloud" },
+    { "match": "gpt-5*", "backend": "cloud" },
+    { "match": "gpt-4.1", "backend": "lmstudio", "rewriteModel": "qwen/qwen3.5-35b-a3b" }
   ],
   "defaultBackend": "cloud"
 }
@@ -219,13 +282,24 @@ const MODEL_MAP = {
 
 Find model IDs with `foundry model list`.
 
+### LM Studio (any model)
+
+No configuration needed — LM Studio accepts any model name and routes to the loaded model:
+
+```powershell
+# 1. In LM Studio, load any model
+# 2. Start the local server (Developer tab → Start Server)
+# 3. Run
+.\launch-lmstudio.ps1
+```
+
 ---
 
 ## How to Verify It's Actually Local
 
 1. **Disconnect from the internet** — it still works ✅
-2. **Check the API key** — it's set to `'ollama'` or `'foundry-local'` (fake keys that no cloud provider would accept)
-3. **Ask "what model are you?"** — Gemma/Phi may identify themselves
+2. **Check the API key** — it's set to `'ollama'`, `'foundry-local'`, or `'lm-studio'` (fake keys via `COPILOT_PROVIDER_API_KEY`)
+3. **Ask "what model are you?"** — Gemma/Phi/Qwen may identify themselves
 4. **Stop the local server** — Copilot CLI immediately fails
 
 ---
@@ -243,15 +317,17 @@ Find model IDs with `foundry model list`.
 ## Architecture
 
 ```
-┌─────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│ Copilot CLI  │────▶│  OPENAI_BASE_URL │────▶│  Local Server   │
-│ (TUI)        │     │  localhost:11434  │     │  Ollama/Foundry │
-│ --model      │     │  or :5272 proxy  │     │  Gemma/Phi-4    │
-│  gpt-4.1     │     └──────────────────┘     └─────────────────┘
+┌─────────────┐     ┌────────────────────────┐     ┌─────────────────┐
+│ Copilot CLI  │────▶│  COPILOT_PROVIDER_     │────▶│  Local Server   │
+│ (TUI)        │     │  BASE_URL              │     │  Ollama/Foundry │
+│ --model      │     │  localhost:11434        │     │  /LM Studio     │
+│  gpt-4.1     │     │  or :5272 proxy        │     │  Gemma/Phi/Qwen │
+│              │     │  or :1234              │     │                 │
+│              │     └────────────────────────┘     └─────────────────┘
 └─────────────┘            ▲
                            │ (Foundry only)
                     ┌──────┴───────┐
-                    │ foundry-proxy│
+                    │foundry-proxy │
                     │ Rewrites     │
                     │ model name   │
                     └──────────────┘

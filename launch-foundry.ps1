@@ -3,8 +3,8 @@
     Launch GitHub Copilot CLI with Foundry Local (Phi-4) as the backend.
 .DESCRIPTION
     Starts a model-name rewrite proxy (foundry-proxy.cjs), then launches
-    Copilot CLI pointed at the proxy. The proxy rewrites "gpt-4.1" to
-    Foundry's internal model ID (e.g. Phi-4-generic-cpu:1).
+    Copilot CLI pointed at the proxy using BYOK mode. The proxy rewrites
+    "gpt-4.1" to Foundry's internal model ID (e.g. Phi-4-generic-cpu:1).
     Temporarily hides MCP configs to stay under the 128-tool limit.
     Restores everything on exit (Ctrl+C safe via try/finally).
 .PARAMETER Model
@@ -16,9 +16,12 @@
     .\launch-foundry.ps1 --yolo
     .\launch-foundry.ps1 -ProxyPort 5280
 #>
+[CmdletBinding(PositionalBinding=$false)]
 param(
     [string]$Model     = 'gpt-4.1',
-    [int]   $ProxyPort = 5272
+    [int]   $ProxyPort = 5272,
+    [Parameter(ValueFromRemainingArguments)]
+    [string[]]$CopilotArgs
 )
 
 $ErrorActionPreference = 'Stop'
@@ -40,8 +43,8 @@ if (-not $foundryPort) {
 
 $env:FOUNDRY_PORT    = $foundryPort
 $env:PROXY_PORT      = $ProxyPort
-$env:OPENAI_BASE_URL = "http://localhost:$ProxyPort/v1"
-$env:OPENAI_API_KEY  = 'foundry-local'
+$env:COPILOT_PROVIDER_BASE_URL = "http://localhost:$ProxyPort/v1"
+$env:COPILOT_PROVIDER_API_KEY  = 'foundry-local'
 
 # --- Verify 'copilot' command is available ---
 $copilotCmd = Get-Command 'copilot' -ErrorAction SilentlyContinue
@@ -90,10 +93,11 @@ Write-Host "=============================================" -ForegroundColor Gree
 Write-Host "  Command:  copilot" -ForegroundColor DarkGray
 Write-Host "  Model:    $Model -> Phi-4 (via proxy)" -ForegroundColor DarkGray
 Write-Host "  Proxy:    http://localhost:$ProxyPort -> Foundry :$foundryPort" -ForegroundColor DarkGray
+Write-Host "  Mode:     COPILOT_PROVIDER_BASE_URL (BYOK)" -ForegroundColor DarkGray
 Write-Host ""
 
 try {
-    $extraArgs = $args
+    $extraArgs = $CopilotArgs
     if ($extraArgs.Count -gt 0) {
         copilot @extraArgs --model $Model
     } else {
@@ -111,4 +115,5 @@ try {
     Stop-Job $proxyJob -ErrorAction SilentlyContinue
     Remove-Job $proxyJob -Force -ErrorAction SilentlyContinue
     Write-Host "  Proxy stopped." -ForegroundColor DarkGray
+
 }

@@ -151,6 +151,24 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // GET /v1/models/<id> — return a single model if it matches a route
+  if (req.method === 'GET' && req.url.startsWith('/v1/models/')) {
+    const modelId = decodeURIComponent(req.url.slice('/v1/models/'.length));
+    const route = resolveRoute(modelId);
+    if (route.backend) {
+      const model = {
+        id: modelId,
+        object: 'model',
+        created: Math.floor(Date.now() / 1000),
+        owned_by: `hybrid-proxy:${route.backend}`,
+      };
+      const body = JSON.stringify(model);
+      res.writeHead(200, { 'content-type': 'application/json', 'content-length': body.length });
+      res.end(body);
+      return;
+    }
+  }
+
   // Collect body
   const chunks = [];
   req.on('data', chunk => chunks.push(chunk));
