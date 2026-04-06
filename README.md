@@ -14,7 +14,7 @@ Redirects the GitHub Copilot CLI's model calls to a local inference server ([Oll
 
 ## How It Works
 
-The Copilot CLI binary (`gh copilot`) uses the OpenAI chat/completions API internally. We exploit three things:
+The Copilot CLI (`copilot` command) uses the OpenAI chat/completions API internally. We exploit three things:
 
 1. **`OPENAI_BASE_URL`** — The binary reads this env var and sends requests there instead of OpenAI
 2. **`--model gpt-4.1`** — We use a whitelisted model name to pass the CLI's validation
@@ -37,8 +37,8 @@ The Copilot CLI sends all configured tools (MCP servers, plugins, skills, agents
 ### Prerequisites
 
 - [Ollama](https://ollama.com) installed
-- GitHub Copilot CLI installed (`gh extension install github/gh-copilot`)
-- Node.js (ships with Copilot CLI)
+- GitHub Copilot CLI installed — the `copilot` command must be on your PATH (install via `npm install -g @anthropic-ai/claude-code` or your organization's preferred method)
+- Node.js (for proxy scripts)
 
 ### Setup
 
@@ -66,8 +66,8 @@ ollama cp gemma4:e2b gpt-4.1
 ### Prerequisites
 
 - [Foundry Local](https://github.com/microsoft/foundry-local) installed
-- GitHub Copilot CLI installed
-- Node.js
+- GitHub Copilot CLI installed — `copilot` command on your PATH (see Ollama prerequisites above)
+- Node.js (for proxy scripts)
 
 ### Setup
 
@@ -117,7 +117,7 @@ Copilot CLI → hybrid-proxy (localhost:9090) → inspects model name
   ollama pull gemma4:e2b
   ollama cp gemma4:e2b gpt-4.1
   ```
-- `copilot` command available on PATH (the Copilot CLI standalone binary)
+- `copilot` command available on PATH (install via `npm install -g @anthropic-ai/claude-code` or your organization's preferred method)
 - Node.js (for the hybrid proxy server)
 
 ### Setup

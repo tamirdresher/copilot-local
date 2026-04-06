@@ -23,19 +23,10 @@ $ErrorActionPreference = 'Stop'
 $env:OPENAI_BASE_URL = 'http://localhost:11434/v1'
 $env:OPENAI_API_KEY  = 'ollama'
 
-# --- Auto-discover Copilot CLI binary ---
-$copilotDir = Join-Path $env:USERPROFILE '.copilot' 'pkg' 'tmp'
-if (-not (Test-Path $copilotDir)) {
-    Write-Error "Copilot CLI not found at $copilotDir. Run 'gh copilot' first to install it."
-    exit 1
-}
-
-$binary = Get-ChildItem $copilotDir -Filter 'index.js' -Recurse -ErrorAction SilentlyContinue |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 1 -ExpandProperty FullName
-
-if (-not $binary) {
-    Write-Error "Copilot CLI binary (index.js) not found under $copilotDir. Run 'gh copilot' first."
+# --- Verify 'copilot' command is available ---
+$copilotCmd = Get-Command 'copilot' -ErrorAction SilentlyContinue
+if (-not $copilotCmd) {
+    Write-Error "'copilot' command not found. Install the Copilot CLI (see README) and ensure it is on your PATH."
     exit 1
 }
 
@@ -65,7 +56,7 @@ Write-Host ""
 Write-Host "=============================================" -ForegroundColor Green
 Write-Host " Copilot CLI + Ollama (Local Mode)" -ForegroundColor Green
 Write-Host "=============================================" -ForegroundColor Green
-Write-Host "  Binary:   $binary" -ForegroundColor DarkGray
+Write-Host "  Command:  copilot" -ForegroundColor DarkGray
 Write-Host "  Model:    $Model -> Ollama alias" -ForegroundColor DarkGray
 Write-Host "  Endpoint: http://localhost:11434/v1" -ForegroundColor DarkGray
 Write-Host ""
@@ -74,9 +65,9 @@ try {
     # Pass all extra args (e.g., --yolo, --resume, --agent)
     $extraArgs = $args
     if ($extraArgs.Count -gt 0) {
-        node $binary @extraArgs --model $Model
+        copilot @extraArgs --model $Model
     } else {
-        node $binary --model $Model
+        copilot --model $Model
     }
 } finally {
     # Restore MCP configs

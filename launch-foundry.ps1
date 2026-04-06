@@ -43,19 +43,10 @@ $env:PROXY_PORT      = $ProxyPort
 $env:OPENAI_BASE_URL = "http://localhost:$ProxyPort/v1"
 $env:OPENAI_API_KEY  = 'foundry-local'
 
-# --- Auto-discover Copilot CLI binary ---
-$copilotDir = Join-Path $env:USERPROFILE '.copilot' 'pkg' 'tmp'
-if (-not (Test-Path $copilotDir)) {
-    Write-Error "Copilot CLI not found at $copilotDir. Run 'gh copilot' first to install it."
-    exit 1
-}
-
-$binary = Get-ChildItem $copilotDir -Filter 'index.js' -Recurse -ErrorAction SilentlyContinue |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 1 -ExpandProperty FullName
-
-if (-not $binary) {
-    Write-Error "Copilot CLI binary (index.js) not found under $copilotDir. Run 'gh copilot' first."
+# --- Verify 'copilot' command is available ---
+$copilotCmd = Get-Command 'copilot' -ErrorAction SilentlyContinue
+if (-not $copilotCmd) {
+    Write-Error "'copilot' command not found. Install the Copilot CLI (see README) and ensure it is on your PATH."
     exit 1
 }
 
@@ -96,7 +87,7 @@ Write-Host ""
 Write-Host "=============================================" -ForegroundColor Green
 Write-Host " Copilot CLI + Foundry Local (Phi-4)" -ForegroundColor Green
 Write-Host "=============================================" -ForegroundColor Green
-Write-Host "  Binary:   $binary" -ForegroundColor DarkGray
+Write-Host "  Command:  copilot" -ForegroundColor DarkGray
 Write-Host "  Model:    $Model -> Phi-4 (via proxy)" -ForegroundColor DarkGray
 Write-Host "  Proxy:    http://localhost:$ProxyPort -> Foundry :$foundryPort" -ForegroundColor DarkGray
 Write-Host ""
@@ -104,9 +95,9 @@ Write-Host ""
 try {
     $extraArgs = $args
     if ($extraArgs.Count -gt 0) {
-        node $binary @extraArgs --model $Model
+        copilot @extraArgs --model $Model
     } else {
-        node $binary --model $Model
+        copilot --model $Model
     }
 } finally {
     # Restore MCP configs
