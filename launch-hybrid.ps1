@@ -3,8 +3,8 @@
     Launch GitHub Copilot CLI in hybrid mode (cloud + local models).
 .DESCRIPTION
     Starts the hybrid proxy that routes model requests to different backends
-    based on model name. Opus models route to local Ollama (Gemma),
-    Sonnet/GPT-5 route to GitHub cloud API.
+    based on model name, as configured in hybrid-proxy.config.json.
+    Backends can include cloud (GitHub API), Ollama, LM Studio, or Foundry.
     Hides MCP configs during session to avoid tool-limit issues with local models.
     Uses 'copilot' command (not 'gh copilot' or 'node' directly).
 .PARAMETER Model
@@ -17,11 +17,15 @@
     .\launch-hybrid.ps1
     .\launch-hybrid.ps1 -Model claude-sonnet-4.5
     .\launch-hybrid.ps1 -Model gpt-4.1
+    .\launch-hybrid.ps1 -Config .\hybrid-proxy-lmstudio.config.json
 #>
+[CmdletBinding(PositionalBinding=$false)]
 param(
     [string]$Model     = 'claude-sonnet-4.5',
     [int]   $ProxyPort = 9090,
-    [string]$Config    = ''
+    [string]$Config    = '',
+    [Parameter(ValueFromRemainingArguments)]
+    [string[]]$CopilotArgs
 )
 
 $ErrorActionPreference = 'Stop'
@@ -49,16 +53,34 @@ if (-not $copilotCmd) {
     exit 1
 }
 
-# --- Verify Ollama is running ---
-try {
-    $null = Invoke-RestMethod 'http://localhost:11434/api/version' -TimeoutSec 3
-} catch {
-    Write-Warning "Ollama doesn't seem to be running on port 11434. Start it with 'ollama serve'."
+# --- Read config to detect backends ---
+$configData = Get-Content $Config -Raw | ConvertFrom-Json
+$backends = @{}
+foreach ($prop in $configData.backends.PSObject.Properties) {
+    $backends[$prop.Name] = $prop.Value
 }
 
-# --- Set environment for Copilot CLI ---
-$env:OPENAI_BASE_URL = "http://localhost:$ProxyPort/v1"
-$env:OPENAI_API_KEY  = 'hybrid-proxy'
+# --- Verify local backends are running ---
+if ($backends.ContainsKey('ollama')) {
+    try {
+        $null = Invoke-RestMethod 'http://localhost:11434/api/version' -TimeoutSec 3
+    } catch {
+        Write-Warning "Ollama doesn't seem to be running on port 11434. Start it with 'ollama serve'."
+    }
+}
+if ($backends.ContainsKey('lmstudio')) {
+    $lmPort = ([uri]$backends['lmstudio'].url).Port
+    try {
+        $null = Invoke-RestMethod "http://localhost:$lmPort/v1/models" -TimeoutSec 3
+    } catch {
+        Write-Warning "LM Studio doesn't seem to be running on port $lmPort."
+        Write-Warning "Open LM Studio, load a model, and start the local server."
+    }
+}
+
+# --- Set environment for Copilot CLI (BYOK mode) ---
+$env:COPILOT_PROVIDER_BASE_URL = "http://localhost:$ProxyPort/v1"
+$env:COPILOT_PROVIDER_API_KEY  = 'hybrid-proxy'
 
 # --- Temporarily hide MCP configs (tool-limit safety) ---
 $mcpFiles = @(
@@ -100,16 +122,20 @@ Write-Host "  Command: copilot" -ForegroundColor DarkGray
 Write-Host "  Model:   $Model" -ForegroundColor DarkGray
 Write-Host "  Proxy:   http://localhost:$ProxyPort" -ForegroundColor DarkGray
 Write-Host "  Config:  $Config" -ForegroundColor DarkGray
+Write-Host "  Mode:    COPILOT_PROVIDER_BASE_URL (BYOK)" -ForegroundColor DarkGray
 Write-Host ""
-Write-Host "  Opus models              → Ollama (local Gemma)" -ForegroundColor DarkCyan
-Write-Host "  Sonnet/GPT-5 models      → GitHub cloud API" -ForegroundColor DarkCyan
-Write-Host "  gpt-4.1, gpt-5-mini      → Ollama (local Gemma)" -ForegroundColor DarkCyan
+Write-Host "  Routes:" -ForegroundColor DarkCyan
+foreach ($route in $configData.routes) {
+    $target = $route.backend
+    if ($route.rewriteModel) { $target += " ($($route.rewriteModel))" }
+    Write-Host "    $($route.match) → $target" -ForegroundColor DarkCyan
+}
+Write-Host "    * (default) → $($configData.defaultBackend)" -ForegroundColor DarkCyan
 Write-Host ""
 
 try {
-    $extraArgs = $args
-    if ($extraArgs.Count -gt 0) {
-        copilot @extraArgs --model $Model
+    if ($CopilotArgs.Count -gt 0) {
+        copilot @CopilotArgs --model $Model
     } else {
         copilot --model $Model
     }
@@ -127,8 +153,5 @@ try {
         }
     }
 
-    # Restore env vars
-    Remove-Item Env:\OPENAI_BASE_URL -ErrorAction SilentlyContinue
-    Remove-Item Env:\OPENAI_API_KEY -ErrorAction SilentlyContinue
     Write-Host "  Environment restored." -ForegroundColor DarkGray
 }

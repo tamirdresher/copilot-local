@@ -1,0 +1,14 @@
+{
+  "listenPort": 9090,
+  "backends": {
+    "cloud": { "url": "https://api.githubcopilot.com", "auth": "passthrough" },
+    "lmstudio": { "url": "http://localhost:1234", "auth": "static", "apiKey": "lm-studio" }
+  },
+  "routes": [
+    { "match": "claude-opus-4.6", "backend": "lmstudio", "rewriteModel": "qwen/qwen3.5-35b-a3b" },
+    { "match": "claude-*", "backend": "cloud" },
+    { "match": "gpt-5*", "backend": "cloud" },
+    { "match": "gpt-4.1", "backend": "lmstudio", "rewriteModel": "qwen/qwen3.5-35b-a3b" }
+  ],
+  "defaultBackend": "cloud"
+}
